@@ -19,6 +19,14 @@ import openfl.display.PNGEncoderOptions;
 
 class Main extends Sprite {
 	var world:Sprite;
+    var background:Sprite;
+    var bgTiles:Array<Bitmap> = [];
+    var bgTileBD:BitmapData;
+    var bgTileSize:Int = 128;
+    var bgParallax:Float = 0.2;
+    var bgDrift:Float = 0.0;
+    var bgBaseColors:Array<Int> = [];
+    var bgAccentColor:Int = 0xFFFFFF;
 	var creaturePool:Array<Bitmap> = [];
 	var activeCreatures:Map<Int, Bitmap> = new Map();
 	var contentWidth:Float = 0;
@@ -33,6 +41,10 @@ class Main extends Sprite {
 		super();
 		stage.align = StageAlign.TOP_LEFT;
 		stage.scaleMode = StageScaleMode.NO_SCALE;
+
+		// Background behind the world content
+		background = new Sprite();
+		addChild(background);
 
 		world = new Sprite();
 		addChild(world);
@@ -55,10 +67,115 @@ class Main extends Sprite {
 		stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
 		stage.addEventListener(MouseEvent.MOUSE_WHEEL, onWheel);
 		stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+		stage.addEventListener(Event.RESIZE, onResize);
+
+		// 2b. Initialize background after we know stage size
+		initBackground();
 
 		// 3. Initial population
 		updateVisibleCreatures();
+
+		// Initial layout
+		onResize(null);
 	}
+
+    // --- Funky background -------------------------------------------------
+
+    function initBackground():Void {
+        // Choose a palette that complements creatures: prefer darker bases and one bright accent
+        var palette = getRandomPalette();
+        var filtered = filterBodyPalette(palette);
+        if (filtered.length < 2) filtered = [0x2E1A47, 0x4B3F72, 0x6C5B7B];
+        // pick two bases and an accent
+        var i0 = Std.int(Math.random() * filtered.length);
+        var i1 = Std.int(Math.random() * filtered.length);
+        while (i1 == i0 && filtered.length > 1) i1 = Std.int(Math.random() * filtered.length);
+        bgBaseColors = [darkenColor(filtered[i0], 0.55), darkenColor(filtered[i1], 0.75)];
+        bgAccentColor = 0xE2E8F0; // soft bright for sparkles/stripes
+
+        // Build a single tile bitmap data used by all tiles
+        bgTileBD = generateBackgroundTile(bgTileSize, bgBaseColors, bgAccentColor);
+
+        // Build grid of tiles to cover current stage
+        rebuildBackgroundGrid();
+    }
+
+    function rebuildBackgroundGrid():Void {
+        // Clear existing tiles
+        for (bmp in bgTiles) {
+            if (bmp.parent != null) bmp.parent.removeChild(bmp);
+        }
+        bgTiles = [];
+
+        var viewW = Math.max(1, stage.stageWidth);
+        var viewH = Math.max(1, stage.stageHeight);
+        var cols = Std.int(Math.ceil(viewW / bgTileSize)) + 2;
+        var rows = Std.int(Math.ceil(viewH / bgTileSize)) + 2;
+
+        for (r in 0...rows) {
+            for (c in 0...cols) {
+                var bmp = new Bitmap(bgTileBD);
+                bmp.smoothing = false;
+                bmp.pixelSnapping = PixelSnapping.ALWAYS;
+                bmp.x = c * bgTileSize;
+                bmp.y = r * bgTileSize;
+                background.addChild(bmp);
+                bgTiles.push(bmp);
+            }
+        }
+        // Reset background position to align tiling
+        background.x = 0;
+        background.y = 0;
+    }
+
+    function generateBackgroundTile(size:Int, baseColors:Array<Int>, accent:Int):BitmapData {
+        var bd = new BitmapData(size, size, false, 0x000000);
+
+        // 4x4 Bayer matrix for ordered dithering
+        var bayer:Array<Array<Int>> = [
+            [0, 8, 2, 10],
+            [12, 4, 14, 6],
+            [3, 11, 1, 9],
+            [15, 7, 13, 5]
+        ];
+
+        var c0 = baseColors[0];
+        var c1 = baseColors[1 % baseColors.length];
+        var stripePeriod = 16; // pixels between stripes
+        var stripeWidth = 2;   // stripe thickness
+
+        for (y in 0...size) {
+            for (x in 0...size) {
+                // Diagonal gradient coordinate (wrap for tiling)
+                var t = (x + y) / (2 * size);
+                var threshold = (bayer[y & 3][x & 3] + 0.5) / 16.0;
+                var base = (t < threshold) ? c0 : c1;
+
+                // Diagonal funky stripes (offset animates via bgDrift in rendering)
+                var stripeCoord = (x + (y << 1)) % stripePeriod;
+                if (stripeCoord < stripeWidth) {
+                    base = darkenColor(base, 0.7);
+                }
+
+                // Sparse sparkles
+                if (((x * 131 + y * 97) % 997) == 0 || ((x * 37 + y * 71) % 409) == 0) {
+                    base = accent;
+                }
+
+                bd.setPixel(x, y, base);
+            }
+        }
+
+        return bd;
+    }
+
+    function darkenColor(color:Int, factor:Float):Int {
+        var r = Std.int(((color >> 16) & 0xFF) * factor);
+        var g = Std.int(((color >> 8) & 0xFF) * factor);
+        var b = Std.int((color & 0xFF) * factor);
+        if (r < 0) r = 0; if (g < 0) g = 0; if (b < 0) b = 0;
+        return (r << 16) | (g << 8) | b;
+    }
 
 	function makeCreatureData(size:Int, density:Float, palette:Array<Int>):BitmapData {
 		var bmpData = new BitmapData(size, size, false, 0x000000);
@@ -263,6 +380,8 @@ class Main extends Sprite {
 
 	function onResize(_:Event):Void {
 		this.scrollRect = new Rectangle(0, 0, stage.stageWidth, stage.stageHeight);
+		// Resize background coverage
+		rebuildBackgroundGrid();
 		clampScroll();
 	}
 
@@ -276,6 +395,13 @@ class Main extends Sprite {
 	}
 
 	function onEnterFrame(e:Event):Void {
+		// Parallax background drift
+		bgDrift += 0.25; // slow autonomous drift
+		var ox = ((world.x * bgParallax + bgDrift) % bgTileSize + bgTileSize) % bgTileSize;
+		var oy = ((Math.sin(bgDrift * 0.01) * 20) % bgTileSize + bgTileSize) % bgTileSize;
+		background.x = -ox;
+		background.y = -oy;
+
 		updateVisibleCreatures();
 	}
 
