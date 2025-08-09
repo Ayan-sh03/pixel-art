@@ -18,56 +18,46 @@ import sys.io.File;
 
 class Main extends Sprite {
 	var world:Sprite;
+	var creaturePool:Array<Bitmap> = [];
+	var activeCreatures:Map<Int, Bitmap> = new Map();
+
 	var contentWidth:Float = 0;
 	var creatureSize:Int = 16;
 	var scaleFactor:Int = 20;
 	var gap:Int = 30;
 	var margin:Int = 20;
 
+	var spacing:Float;
+
 	public function new() {
 		super();
 		stage.align = StageAlign.TOP_LEFT;
 		stage.scaleMode = StageScaleMode.NO_SCALE;
-		#if sys
-		if (!FileSystem.exists("exports")) {
-			FileSystem.createDirectory("exports");
-		}
-		#end
 
 		world = new Sprite();
 		addChild(world);
 
-		// viewport clipping for scroll
-		this.scrollRect = new Rectangle(0, 0, stage.stageWidth, stage.stageHeight);
-		stage.addEventListener(Event.RESIZE, onResize);
+		spacing = (creatureSize * scaleFactor) + gap;
 
-		var count = 5;
-		var tileW = creatureSize * scaleFactor;
-		var spacing = tileW + gap;
-
-		for (i in 0...count) {
-			var density = 0.2 + Math.random() * 0.6;
-			var palette = getRandomPalette();
-			var bmpData = makeCreatureData(creatureSize, density, palette);
-
-			var bmp = new Bitmap(bmpData);
+		// 1. Create a pool of reusable Bitmaps
+		for (i in 0...10) { // 10 is enough for a smooth scroll
+			var bmp = new Bitmap(null);
 			bmp.scaleX = scaleFactor;
 			bmp.scaleY = scaleFactor;
-			bmp.x = margin + i * spacing;
-			bmp.y = 100;
 			bmp.smoothing = false;
 			bmp.pixelSnapping = PixelSnapping.ALWAYS;
-
+			bmp.visible = false; // start hidden
+			creaturePool.push(bmp);
 			world.addChild(bmp);
 		}
 
-		// total content width for clamping
-		contentWidth = margin + (count - 1) * spacing + tileW;
-
-		// input for scrolling
+		// 2. Add event listeners
+		stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
 		stage.addEventListener(MouseEvent.MOUSE_WHEEL, onWheel);
 		stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
-		clampScroll();
+
+		// 3. Initial population
+		updateVisibleCreatures();
 	}
 
 	function makeCreatureData(size:Int, density:Float, palette:Array<Int>):BitmapData {
@@ -260,8 +250,7 @@ class Main extends Sprite {
 	}
 
 	function onWheel(e:MouseEvent):Void {
-		world.x -= e.delta * 40; // wheel right = scroll right
-		clampScroll();
+		world.x -= e.delta * 40;
 	}
 
 	function onKeyDown(e:KeyboardEvent):Void {
@@ -270,7 +259,6 @@ class Main extends Sprite {
 			world.x -= step;
 		if (e.keyCode == Keyboard.LEFT)
 			world.x += step;
-		clampScroll();
 	}
 
 	function onResize(_:Event):Void {
@@ -285,6 +273,52 @@ class Main extends Sprite {
 			world.x = minX;
 		if (world.x > 0)
 			world.x = 0;
+	}
+
+	function onEnterFrame(e:Event):Void {
+		updateVisibleCreatures();
+	}
+
+	function updateVisibleCreatures():Void {
+		// Calculate which creature indices should be visible
+		var viewLeft = -world.x;
+		var viewRight = viewLeft + stage.stageWidth;
+		var startIndex = Math.floor(viewLeft / spacing) - 1;
+		var endIndex = Math.ceil(viewRight / spacing) + 1;
+
+		// Deactivate creatures that are no longer visible
+		for (index in activeCreatures.keys()) {
+			if (index < startIndex || index > endIndex) {
+				var bmp = activeCreatures.get(index);
+				bmp.visible = false;
+				activeCreatures.remove(index);
+			}
+		}
+
+		// Activate creatures that should now be visible
+		for (i in startIndex...endIndex) {
+			if (!activeCreatures.exists(i)) {
+				var bmp = findAvailableBitmap();
+				if (bmp != null) {
+					// Generate new art and position it
+					var density = 0.2 + Math.random() * 0.6;
+					var palette = getRandomPalette();
+					bmp.bitmapData = makeCreatureData(creatureSize, density, palette);
+					bmp.x = margin + i * spacing;
+					bmp.y = 100;
+					bmp.visible = true;
+					activeCreatures.set(i, bmp);
+				}
+			}
+		}
+	}
+
+	function findAvailableBitmap():Bitmap {
+		for (bmp in creaturePool) {
+			if (!bmp.visible)
+				return bmp;
+		}
+		return null; // should not happen if pool is large enough
 	}
 
 	#if sys
