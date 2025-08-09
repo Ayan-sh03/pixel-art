@@ -14,13 +14,13 @@ import openfl.geom.Rectangle;
 #if sys
 import sys.FileSystem;
 import sys.io.File;
+import openfl.display.PNGEncoderOptions;
 #end
 
 class Main extends Sprite {
 	var world:Sprite;
 	var creaturePool:Array<Bitmap> = [];
 	var activeCreatures:Map<Int, Bitmap> = new Map();
-
 	var contentWidth:Float = 0;
 	var creatureSize:Int = 16;
 	var scaleFactor:Int = 20;
