@@ -36,6 +36,18 @@ class Main extends Sprite {
 	var margin:Int = 20;
 
 	var spacing:Float;
+	var minIndex:Int = 0;
+	var maxIndex:Int = -1;
+	var numRows:Int = 3;
+	var rowHeight:Int = 40;
+	var seed:Int = 123456789;
+
+	inline function rand():Float {
+		seed ^= (seed << 13);
+		seed ^= (seed >> 17);
+		seed ^= (seed << 5);
+		return (seed & 0x7FFFFFFF) / 2147483647.0;
+	}
 
 	public function new() {
 		super();
@@ -52,7 +64,10 @@ class Main extends Sprite {
 		spacing = (creatureSize * scaleFactor) + gap;
 
 		// 1. Create a pool of reusable Bitmaps
-		for (i in 0...10) { // 10 is enough for a smooth scroll
+		var viewW = Math.max(1, stage.stageWidth);
+		var columnsVisible = Std.int(Math.ceil(viewW / spacing)) + 4;
+		var neededBitmaps = Std.int(Math.max(columnsVisible, 12));
+		for (i in 0...neededBitmaps) {
 			var bmp = new Bitmap(null);
 			bmp.scaleX = scaleFactor;
 			bmp.scaleY = scaleFactor;
@@ -68,6 +83,12 @@ class Main extends Sprite {
 		stage.addEventListener(MouseEvent.MOUSE_WHEEL, onWheel);
 		stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 		stage.addEventListener(Event.RESIZE, onResize);
+		stage.addEventListener(Event.REMOVED_FROM_STAGE, function(_) {
+			stage.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
+			stage.removeEventListener(MouseEvent.MOUSE_WHEEL, onWheel);
+			stage.removeEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
+			stage.removeEventListener(Event.RESIZE, onResize);
+		});
 
 		// 2b. Initialize background after we know stage size
 		initBackground();
@@ -111,6 +132,7 @@ class Main extends Sprite {
         var viewH = Math.max(1, stage.stageHeight);
         var cols = Std.int(Math.ceil(viewW / bgTileSize)) + 2;
         var rows = Std.int(Math.ceil(viewH / bgTileSize)) + 2;
+        if (bgTiles.length == cols * rows) return; // already sized correctly
 
         for (r in 0...rows) {
             for (c in 0...cols) {
@@ -178,7 +200,8 @@ class Main extends Sprite {
     }
 
 	function makeCreatureData(size:Int, density:Float, palette:Array<Int>):BitmapData {
-		var bmpData = new BitmapData(size, size, false, 0x000000);
+		var bmpData = new BitmapData(size, size, true, 0x00000000);
+		bmpData.lock();
 
 		var bodyPalette = filterBodyPalette(palette);
 		var baseColor = bodyPalette[Std.int(Math.random() * bodyPalette.length)];
@@ -193,11 +216,11 @@ class Main extends Sprite {
 				if (y >= eyeY - 2 && y <= eyeY + 2)
 					localDensity *= 0.55;
 
-				if (Math.random() < localDensity) {
-					var useAccent = Math.random() < 0.2;
+				if (rand() < localDensity) {
+					var useAccent = rand() < 0.2;
 					var color = useAccent ? accentColor : baseColor;
-					bmpData.setPixel(x, y, color);
-					bmpData.setPixel(size - 1 - x, y, color);
+					bmpData.setPixel32(x, y, 0xFF000000 | color);
+					bmpData.setPixel32(size - 1 - x, y, 0xFF000000 | color);
 				}
 			}
 		}
@@ -209,6 +232,7 @@ class Main extends Sprite {
 		addMouth(bmpData, size);
 		addHorns(bmpData, size, palette);
 
+		bmpData.unlock();
 		return bmpData;
 	}
 
@@ -225,7 +249,7 @@ class Main extends Sprite {
 	}
 
 	function carveFaceArea(bmpData:BitmapData, size:Int, eyeY:Int):Void {
-		var bg = 0x000000;
+		var bg = 0x00000000;
 		var cx = size >> 1;
 		var mouthY = size - 4; // match where mouth will be placed
 
@@ -233,7 +257,7 @@ class Main extends Sprite {
 		for (y in (eyeY - 1)...(mouthY + 2)) {
 			for (x in (cx - 4)...(cx + 5)) {
 				if (x >= 0 && x < size && y >= 0 && y < size) {
-					bmpData.setPixel(x, y, bg);
+					bmpData.setPixel32(x, y, bg);
 				}
 			}
 		}
@@ -249,29 +273,29 @@ class Main extends Sprite {
 
 		switch (numEyes) {
 			case 1:
-				bmpData.setPixel(cx, eyeY, eyeColor);
-				bmpData.setPixel(cx, eyeY + 1, pupilColor);
+				bmpData.setPixel32(cx, eyeY, 0xFF000000 | eyeColor);
+				bmpData.setPixel32(cx, eyeY + 1, 0xFF000000 | pupilColor);
 			case 2:
 				var l = cx - spacing;
 				var r = cx + spacing;
-				bmpData.setPixel(l, eyeY, eyeColor);
-				bmpData.setPixel(r, eyeY, eyeColor);
-				bmpData.setPixel(l, eyeY + 1, pupilColor);
-				bmpData.setPixel(r, eyeY + 1, pupilColor);
+				bmpData.setPixel32(l, eyeY, 0xFF000000 | eyeColor);
+				bmpData.setPixel32(r, eyeY, 0xFF000000 | eyeColor);
+				bmpData.setPixel32(l, eyeY + 1, 0xFF000000 | pupilColor);
+				bmpData.setPixel32(r, eyeY + 1, 0xFF000000 | pupilColor);
 			case 3:
 				var l3 = cx - spacing;
 				var r3 = cx + spacing;
-				bmpData.setPixel(l3, eyeY, eyeColor);
-				bmpData.setPixel(cx, eyeY, eyeColor);
-				bmpData.setPixel(r3, eyeY, eyeColor);
-				bmpData.setPixel(l3, eyeY + 1, pupilColor);
-				bmpData.setPixel(cx, eyeY + 1, pupilColor);
-				bmpData.setPixel(r3, eyeY + 1, pupilColor);
+				bmpData.setPixel32(l3, eyeY, 0xFF000000 | eyeColor);
+				bmpData.setPixel32(cx, eyeY, 0xFF000000 | eyeColor);
+				bmpData.setPixel32(r3, eyeY, 0xFF000000 | eyeColor);
+				bmpData.setPixel32(l3, eyeY + 1, 0xFF000000 | pupilColor);
+				bmpData.setPixel32(cx, eyeY + 1, 0xFF000000 | pupilColor);
+				bmpData.setPixel32(r3, eyeY + 1, 0xFF000000 | pupilColor);
 		}
 	}
 
 	function addMouth(bmpData:BitmapData, size:Int):Void {
-		var mouthType = Std.int(Math.random() * 4);
+		var mouthType = Std.int(rand() * 4);
 		// var mouthType = 0;
 		if (mouthType == 3)
 			return;
@@ -284,43 +308,43 @@ class Main extends Sprite {
 			case 0: // happy
 
 				for (dx in -3...4) {
-					bmpData.setPixel(centerX + dx, mouthY, mouthColor);
+					bmpData.setPixel32(centerX + dx, mouthY, 0xFF000000 | mouthColor);
 				}
 				// curve up at edges
-				bmpData.setPixel(centerX - 4, mouthY - 1, mouthColor);
-				bmpData.setPixel(centerX + 4, mouthY - 1, mouthColor);
+				bmpData.setPixel32(centerX - 4, mouthY - 1, 0xFF000000 | mouthColor);
+				bmpData.setPixel32(centerX + 4, mouthY - 1, 0xFF000000 | mouthColor);
 
 			case 1: // big frown
 				// mouth row
 				for (dx in -3...4) {
-					bmpData.setPixel(centerX + dx, mouthY + 1, mouthColor);
+					bmpData.setPixel32(centerX + dx, mouthY + 1, 0xFF000000 | mouthColor);
 				}
 				// curve down at edges
-				bmpData.setPixel(centerX - 4, mouthY + 2, mouthColor);
-				bmpData.setPixel(centerX + 4, mouthY + 2, mouthColor);
+				bmpData.setPixel32(centerX - 4, mouthY + 2, 0xFF000000 | mouthColor);
+				bmpData.setPixel32(centerX + 4, mouthY + 2, 0xFF000000 | mouthColor);
 				// thicker top lip
 				for (dx in -2...3) {
-					bmpData.setPixel(centerX + dx, mouthY, mouthColor);
+					bmpData.setPixel32(centerX + dx, mouthY, 0xFF000000 | mouthColor);
 				}
 
 			case 2: // open mouth
 				// outer shape
 				for (dx in -2...3) {
-					bmpData.setPixel(centerX + dx, mouthY, mouthColor);
-					bmpData.setPixel(centerX + dx, mouthY + 2, mouthColor);
+					bmpData.setPixel32(centerX + dx, mouthY, 0xFF000000 | mouthColor);
+					bmpData.setPixel32(centerX + dx, mouthY + 2, 0xFF000000 | mouthColor);
 				}
-				bmpData.setPixel(centerX - 3, mouthY + 1, mouthColor);
-				bmpData.setPixel(centerX + 3, mouthY + 1, mouthColor);
+				bmpData.setPixel32(centerX - 3, mouthY + 1, 0xFF000000 | mouthColor);
+				bmpData.setPixel32(centerX + 3, mouthY + 1, 0xFF000000 | mouthColor);
 				// fill inside with a different color (tongue)
 				var tongueColor = 0xFF4B4B; // bright red
 				for (dx in -1...2) {
-					bmpData.setPixel(centerX + dx, mouthY + 1, tongueColor);
+					bmpData.setPixel32(centerX + dx, mouthY + 1, 0xFF000000 | tongueColor);
 				}
 		}
 	}
 
 	function addHorns(bmpData:BitmapData, size:Int, palette:Array<Int>):Void {
-		var hornType = Std.int(Math.random() * 4);
+		var hornType = Std.int(rand() * 4);
 		if (hornType == 0)
 			return;
 
@@ -330,28 +354,28 @@ class Main extends Sprite {
 
 		switch (hornType) {
 			case 1:
-				bmpData.setPixel(centerX - 3, 0, hornColor);
-				bmpData.setPixel(centerX + 3, 0, hornColor);
+				bmpData.setPixel32(centerX - 3, 0, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX + 3, 0, 0xFF000000 | hornColor);
 			case 2:
-				bmpData.setPixel(centerX - 2, 0, hornColor);
-				bmpData.setPixel(centerX + 2, 0, hornColor);
-				bmpData.setPixel(centerX - 2, 1, hornColor);
-				bmpData.setPixel(centerX + 2, 1, hornColor);
+				bmpData.setPixel32(centerX - 2, 0, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX + 2, 0, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX - 2, 1, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX + 2, 1, 0xFF000000 | hornColor);
 
 			case 3: // new curved horns from your image
 				// Left horn
-				bmpData.setPixel(centerX - 2, 0, hornColor);
-				bmpData.setPixel(centerX - 2, 1, hornColor);
-				bmpData.setPixel(centerX - 3, 1, hornColor);
-				bmpData.setPixel(centerX - 3, 2, hornColor);
-				bmpData.setPixel(centerX - 4, 3, hornColor);
+				bmpData.setPixel32(centerX - 2, 0, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX - 2, 1, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX - 3, 1, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX - 3, 2, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX - 4, 3, 0xFF000000 | hornColor);
 
 				// Right horn (mirrored)
-				bmpData.setPixel(centerX + 2, 0, hornColor);
-				bmpData.setPixel(centerX + 2, 1, hornColor);
-				bmpData.setPixel(centerX + 3, 1, hornColor);
-				bmpData.setPixel(centerX + 3, 2, hornColor);
-				bmpData.setPixel(centerX + 4, 3, hornColor);
+				bmpData.setPixel32(centerX + 2, 0, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX + 2, 1, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX + 3, 1, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX + 3, 2, 0xFF000000 | hornColor);
+				bmpData.setPixel32(centerX + 4, 3, 0xFF000000 | hornColor);
 		}
 	}
 
@@ -363,11 +387,12 @@ class Main extends Sprite {
 			[0x0D2B45, 0x203C56, 0x544E68, 0x8D697A, 0xD08159], // Earth tones
 			[0x2D3748, 0x4A5568, 0x718096, 0xA0AEC0, 0xE2E8F0] // Grays
 		];
-		return palettes[Std.int(Math.random() * palettes.length)];
+		return palettes[Std.int(rand() * palettes.length)];
 	}
 
 	function onWheel(e:MouseEvent):Void {
 		world.x -= e.delta * 40;
+		clampScroll();
 	}
 
 	function onKeyDown(e:KeyboardEvent):Void {
@@ -376,6 +401,19 @@ class Main extends Sprite {
 			world.x -= step;
 		if (e.keyCode == Keyboard.LEFT)
 			world.x += step;
+		#if sys
+		if (e.keyCode == Keyboard.S) {
+			var i = 0;
+			for (index in activeCreatures.keys()) {
+				var bmp = activeCreatures.get(index);
+				if (bmp != null && bmp.bitmapData != null) {
+					saveCreaturePNG(bmp.bitmapData, "Export/neko/bin/exports/creature_" + i + ".png");
+					i++;
+				}
+			}
+		}
+		#end
+		clampScroll();
 	}
 
 	function onResize(_:Event):Void {
@@ -427,16 +465,22 @@ class Main extends Sprite {
 				var bmp = findAvailableBitmap();
 				if (bmp != null) {
 					// Generate new art and position it
-					var density = 0.2 + Math.random() * 0.6;
+					var density = 0.2 + rand() * 0.6;
 					var palette = getRandomPalette();
+					if (bmp.bitmapData != null) bmp.bitmapData.dispose();
 					bmp.bitmapData = makeCreatureData(creatureSize, density, palette);
 					bmp.x = margin + i * spacing;
-					bmp.y = 100;
+					var row = ((i % numRows) + numRows) % numRows;
+					bmp.y = 100 + row * rowHeight;
 					bmp.visible = true;
 					activeCreatures.set(i, bmp);
+					if (maxIndex < minIndex) { minIndex = i; maxIndex = i; }
+					if (i < minIndex) minIndex = i;
+					if (i > maxIndex) maxIndex = i;
 				}
 			}
 		}
+		contentWidth = margin * 2 + (maxIndex - minIndex + 1) * spacing;
 	}
 
 	function findAvailableBitmap():Bitmap {
@@ -444,7 +488,20 @@ class Main extends Sprite {
 			if (!bmp.visible)
 				return bmp;
 		}
-		return null; // should not happen if pool is large enough
+		// Steal the farthest visible one if pool exhausted
+		var farBmp:Bitmap = null;
+		var farDist:Float = -1e9;
+		var farIndex:Int = 0;
+		for (pair in activeCreatures.keyValueIterator()) {
+			var idx = pair.key;
+			var b = pair.value;
+			var dist = Math.abs((margin + idx * spacing) + world.x - stage.stageWidth * 0.5);
+			if (dist > farDist) { farDist = dist; farBmp = b; farIndex = idx; }
+		}
+		if (farBmp != null) {
+			activeCreatures.remove(farIndex);
+		}
+		return farBmp;
 	}
 
 	#if sys
