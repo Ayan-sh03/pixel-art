@@ -41,6 +41,8 @@ class Main extends Sprite {
 	var numRows:Int = 3;
 	var rowHeight:Int = 40;
 	var seed:Int = 123456789;
+	var lastBgCols:Int = -1;
+	var lastBgRows:Int = -1;
 
 	inline function rand():Float {
 		seed ^= (seed << 13);
@@ -122,17 +124,19 @@ class Main extends Sprite {
     }
 
     function rebuildBackgroundGrid():Void {
+        var viewW = Math.max(1, stage.stageWidth);
+        var viewH = Math.max(1, stage.stageHeight);
+        var cols = Std.int(Math.ceil(viewW / bgTileSize)) + 2;
+        var rows = Std.int(Math.ceil(viewH / bgTileSize)) + 2;
+        if (lastBgCols == cols && lastBgRows == rows) return; // already sized correctly
+        lastBgCols = cols;
+        lastBgRows = rows;
+
         // Clear existing tiles
         for (bmp in bgTiles) {
             if (bmp.parent != null) bmp.parent.removeChild(bmp);
         }
         bgTiles = [];
-
-        var viewW = Math.max(1, stage.stageWidth);
-        var viewH = Math.max(1, stage.stageHeight);
-        var cols = Std.int(Math.ceil(viewW / bgTileSize)) + 2;
-        var rows = Std.int(Math.ceil(viewH / bgTileSize)) + 2;
-        if (bgTiles.length == cols * rows) return; // already sized correctly
 
         for (r in 0...rows) {
             for (c in 0...cols) {
